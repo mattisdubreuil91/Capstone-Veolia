@@ -476,5 +476,12 @@ for i, (lab, f, fmt, note) in enumerate(rl, 3):
 
 for wsx in wb.worksheets:
     wsx.sheet_view.showGridLines = False
+    wsx.page_setup.orientation = "landscape"
+    wsx.page_setup.paperSize = wsx.PAPERSIZE_A4
+    wsx.page_setup.fitToWidth = 1
+    wsx.page_setup.fitToHeight = 0
+    wsx.sheet_properties.pageSetUpPr.fitToPage = True
+# Print only the four headline cases of the Engine; sensitivity columns are summarised on Tornado
+en.print_area = f"A1:E{en.max_row}"
 wb.save(OUT)
 print("saved", OUT, "cases:", len(CASES))
