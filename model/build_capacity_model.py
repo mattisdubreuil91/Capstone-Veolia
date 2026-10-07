@@ -55,6 +55,7 @@ lines = [
     ("Start      - Block 2: starting position (net debt, EBITDA, leverage, maturities, liquidity) and the two net-debt figures that do not reconcile.", False),
     ("Engine     - Blocks 3-4: one column per case. Green cells link to Inputs; blue cells in a case column are that case's overrides.", False),
     ("Summary    - the capacity range by case and the three sources of capacity (retained FCF, disposals, leverage headroom).", False),
+    ("Formulas   - the four standard formulas (leverage, headroom, available cash, practical capacity) applied and corrected.", False),
     ("Tornado    - Block 5: one-way sensitivities ranked by swing, computed from the Engine.", False),
     ("Rating     - cross-check against the agency trigger (Moody's FFO/net debt). Low confidence until the PDF is read.", False),
     ("", False),
@@ -133,6 +134,14 @@ INPUTS = [
     ("ProForma", "Share of acquired EBITDA counted in 2027 ratio", 0, "%", "Judgement", "", "0 = conservative (deal closes late 2027 or ratio uses reported EBITDA). Ask Veolia whether the covenant/guidance ratio is pro forma.", "Low", 1),
     ("FX_H2", "FX / other on NFD, H2 2026", 0, "EUR m", "Judgement", "", "H1-2026: -260 (p.26). USD share of debt has risen with Clean Earth.", "Low", 1),
     ("FX_27", "FX / other on NFD, 2027", 0, "EUR m", "Judgement", "", "Positive = debt increases.", "Low", 1),
+    ("sec", "Liquidity (for the cash-availability formula)"),
+    ("Cash_J26", "Cash, cash equivalents and liquid assets 30/06/2026", 9332, "EUR m", D_H126, "14", "'Cash stands at EUR 9,332 million'. Equals 7,288 cash + 2,044 liquid assets (p.28).", "High", 0),
+    ("Undrawn_J26", "Undrawn committed credit lines 30/06/2026", "=4500+1373", "EUR m", D_H126, "14", "Syndicated loan 4,500 (matures 2030) + bilateral lines 1,373. Counted as 'permitted borrowing'; new bond issues are not counted.", "High", 0),
+    ("CurDebt_J26", "Current debt incl. overdrafts 30/06/2026 (due within 12 months)", 11374, "EUR m", D_H126, "28", "Mostly commercial paper and bonds due by June 2027. Treated as repaid, not rolled over (prudent).", "High", 0),
+    ("Mat27", "Contractual debt flows due in calendar 2027", 3891, "EUR m", D_FY25, "66", "Undiscounted, incl. interest, at 31/12/2025.", "Medium", 0),
+    ("Mat27H2", "Share of 2027 flows falling in H2 2027 (not already in current debt)", 0.5, "%", "Judgement", "", "Timing within 2027 not published.", "Low", 1),
+    ("MinCash", "Minimum cash reserve", 2000, "EUR m", "Judgement", "", "No published floor. Veolia has held EUR 7-10bn of cash at every reporting date; EUR 2bn is a working floor to debate.", "Low", 1),
+    ("Committed", "Investments already committed, not yet paid", 0, "EUR m", D_FY25, "18", "The only securities purchase commitment at 31/12/2025 was Clean Earth, paid June 2026. Industrial capex is already inside net FCF.", "Medium", 0),
     ("sec", "Rating cross-check (unverified - read the PDF before using)"),
     ("Moody_Fcst27", "Moody's forecast FFO / net debt 2027", 0.195, "%", D_WEB, "", "Search-result extract only; the PDF could not be downloaded from this environment.", "Low", 1),
     ("Moody_Trig", "Moody's downgrade threshold FFO / net debt ('below the high teens')", 0.18, "%", D_WEB, "", "'High teens' read as 18%. Agency wording, not a number: judgement.", "Low", 1),
@@ -454,6 +463,56 @@ for s in range(len(SENS)):
     font(tn.cell(row=q, column=1, value=f'="{s+1}. "&INDEX($A${n0}:$A${n1},{m})'))
     for col, src in ((2, "D"), (3, "E"), (4, "F")):
         c = tn.cell(row=q, column=col, value=f"=INDEX(${src}${n0}:${src}${n1},{m})"); font(c); c.number_format = EUR
+
+# ---------------------------------------------------------------- FORMULAS (the four standard formulas, applied)
+fm = wb.create_sheet("Formulas", 2)
+fm.column_dimensions["A"].width = 64; fm.column_dimensions["B"].width = 14; fm.column_dimensions["C"].width = 90
+fm["A1"] = "Capacity with the four standard formulas (base case, EUR m)"; font(fm["A1"], bold=True, size=12)
+def E0(k):
+    return f"Engine!$B${DR[k]}" if k in DR else ecell(k, 0)
+FROWS = [
+    ("h", "1-2. Net leverage and debt headroom TODAY (30/06/2026, last-12-months EBITDA)"),
+    ("lev_now", "Net leverage = net debt / EBITDA", f"={I('NFD_J26')}/Start!E3", X, "June debt peak / LTM EBITDA."),
+    ("head_now", "Debt headroom = Lmax x EBITDA - net debt", f"={I('Lmax')}*Start!E3-{I('NFD_J26')}", EUR, "Negative: on today's figures there is no room. Misleading: June is the seasonal peak and no future cash is counted."),
+    ("h", "1-2. Same formulas at the TEST DATE (31/12/2027, base-case forecast before new deals)"),
+    ("lev_27", "Net leverage = net debt / EBITDA", "=" + E0("Lev27"), X, "The 3x is tested at year-end on Veolia's own definition (no bank covenant at parent level: FY25 p.67)."),
+    ("head_27", "Debt headroom = Lmax x EBITDA 2027 - net debt end-2027", "=" + E0("Head"), EUR, "Net debt end-2027 already includes cash from operations, dividends and disposals."),
+    ("h", "3. Cash available for investment, Jul-2026 to Dec-2027"),
+    ("c_open", "+ Opening cash (incl. liquid assets)", f"={I('Cash_J26')}", EUR, ""),
+    ("c_gen", "+ Cash generated: net FCF H2-26 + 2027", "=" + E0("FCF_H2") + "+" + E0("FCF27"), EUR, "Net FCF is after capex, interest and tax."),
+    ("c_div", "- Dividends, hybrid coupons, buyback", "=-(" + E0("DivH2") + "+" + E0("Buyback") + "+" + E0("Out27") + ")", EUR, ""),
+    ("c_disp", "+ Disposal proceeds", "=" + E0("DispBy27"), EUR, ""),
+    ("c_borrow", "+ Permitted borrowing (undrawn committed lines)", f"={I('Undrawn_J26')}", EUR, "Excludes new bond issues: Veolia raised EUR 3.9bn in H1-2026, so this is prudent."),
+    ("c_rep", "- Repayments (current debt + H2-2027 maturities)", f"=-({I('CurDebt_J26')}+{I('Mat27')}*{I('Mat27H2')})", EUR, "Assumes nothing is refinanced."),
+    ("c_comm", "- Committed spending", f"=-{I('Committed')}", EUR, ""),
+    ("c_res", "- Minimum cash reserve", f"=-{I('MinCash')}", EUR, ""),
+    ("c_avail", "Available cash (total)", "=SUM(B{c_open}:B{c_res})", EUR, "Before any refinancing in the bond market."),
+    ("h", "4. Practical investment capacity"),
+    ("f4_written", "As written: min(available cash, headroom + cash from operations) - committed", "=MIN(B{c_avail},B{head_27}+B{c_gen}+B{c_div})-" + I("Committed"), EUR, "Overstates: the end-2027 headroom already contains the cash from operations, so it is counted twice."),
+    ("f4_corr", "Corrected: min(available cash, end-2027 headroom) - committed", "=MIN(B{c_avail},B{head_27})-" + I("Committed"), EUR, "Headroom taken from the full net-debt forecast at the test date, as the note to formula 4 recommends."),
+    ("bind", "Binding constraint", '=IF(B{c_avail}<B{head_27},"Cash","Leverage (3x)")', None, ""),
+    ("f4_pf", "If acquired EBITDA counts in the 2027 ratio (deal at the input multiple)", "=MIN(B{c_avail},B{head_27}/(1-" + I("Lmax") + "/" + I("DealMult") + "))-" + I("Committed"), EUR, "Each EUR 1 of EV buys 1/multiple of EBITDA, which raises the limit by 3/multiple."),
+]
+fr = 3; FR = {}
+for row in FROWS:
+    if row[0] == "h":
+        c = fm.cell(row=fr, column=1, value=row[1]); font(c, bold=True)
+        for col in range(1, 4):
+            fm.cell(row=fr, column=col).fill = SUB
+        fr += 1; continue
+    FR[row[0]] = fr; fr += 1
+for row in FROWS:
+    if row[0] == "h":
+        continue
+    k, lab, f, fmt, note = row
+    rr = FR[k]
+    font(fm.cell(row=rr, column=1, value=lab), bold=k in ("c_avail", "f4_corr"))
+    c = fm.cell(row=rr, column=2, value=f.format(**FR)); font(c, bold=k in ("c_avail", "f4_corr"))
+    if fmt:
+        c.number_format = fmt
+    if k == "f4_corr":
+        c.fill = YELLOW
+    font(fm.cell(row=rr, column=3, value=note), italic=True)
 
 # ---------------------------------------------------------------- RATING
 ra = wb.create_sheet("Rating")
