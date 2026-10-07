@@ -53,6 +53,7 @@ lines = [
     ("Inputs     - every hard-coded number, with document, PDF page and how it was derived. Blue = input, yellow = judgement call to defend.", False),
     ("Spent      - Block 1: what has gone out against the EUR 4bn GreenUp envelope, gross and net of disposals.", False),
     ("Start      - Block 2: starting position (net debt, EBITDA, leverage, maturities, liquidity) and the two net-debt figures that do not reconcile.", False),
+    ("Step-by-step - the base case laid out line by line: EBITDA build, net debt roll-forward, leverage test, capacity. Start here.", False),
     ("Engine     - Blocks 3-4: one column per case. Green cells link to Inputs; blue cells in a case column are that case's overrides.", False),
     ("Summary    - the capacity range by case and the three sources of capacity (retained FCF, disposals, leverage headroom).", False),
     ("Formulas   - the four standard formulas (leverage, headroom, available cash, practical capacity) applied and corrected.", False),
@@ -464,8 +465,85 @@ for s in range(len(SENS)):
     for col, src in ((2, "D"), (3, "E"), (4, "F")):
         c = tn.cell(row=q, column=col, value=f"=INDEX(${src}${n0}:${src}${n1},{m})"); font(c); c.number_format = EUR
 
+# ---------------------------------------------------------------- STEP-BY-STEP (base case, every line visible)
+sb = wb.create_sheet("Step-by-step", 2)
+for col, w in zip("ABCDEFG", [6, 50, 15, 15, 15, 70, 34]):
+    sb.column_dimensions[col].width = w
+sb["A1"] = "Step-by-step calculation, base case (EUR m unless stated)"; font(sb["A1"], bold=True, size=12)
+sb["A2"] = "Every number is a formula over the Inputs sheet. Change an input there and this sheet recalculates. Column C holds 2026: EBITDA is the full year, cash flows are July-December only (H1 is already in the June debt)."
+font(sb["A2"], italic=True)
+header(sb, 4, ["Step", "Line", "2026", "2027", "Total Jul-26 to Dec-27", "How it is calculated", "Source / input"])
+SROWS = [
+    ("h", "A. Operating profit (EBITDA) - the denominator of the leverage test"),
+    ("a1", "A1", "EBITDA of the existing business, prior year", f"={I('EBITDA25')}", "=C{a4}", None, EUR, "2026: FY2025 EBITDA. 2027: the 2026 figure from A4.", "Inputs: EBITDA FY2025 (H1-26 report p.6)"),
+    ("a2", "A2", "Organic growth", f"={I('Org26')}", f"={I('Org27')}", None, PCT, "2026: guidance mid-point. 2027: GreenUp ~5%.", "Inputs: Org26, Org27"),
+    ("a3", "A3", "Currency effect", f"={I('FX26')}", "=0", None, PCT, "2026: H1 effect extrapolated. 2027: none assumed.", "Inputs: FX26"),
+    ("a4", "A4", "EBITDA of the existing business", "=C{a1}*(1+C{a2}+C{a3})", "=D{a1}*(1+D{a2}+D{a3})", None, EUR, "A1 x (1 + A2 + A3)", ""),
+    ("a5", "A5", "Clean Earth EBITDA, full year", f"=({I('CE_EV')}/{I('CE_Mult')}-{I('CE_Syn')})/{I('USD_EUR')}", f"=C{{a5}}*(1+{I('Org27')})", None, EUR, "(Price / EV-to-EBITDA multiple - run-rate synergies) / USD per EUR. 2027 grows with A2.", "Inputs: CE_EV, CE_Mult, CE_Syn, USD_EUR (briefing p.21)"),
+    ("a6", "A6", "Months of Clean Earth consolidated", f"={I('CE_Months26')}", "=12", None, "0", "Closed 1 June 2026.", "Inputs: CE_Months26"),
+    ("a7", "A7", "Clean Earth contribution", "=C{a5}*C{a6}/12", "=D{a5}*D{a6}/12", None, EUR, "A5 x A6 / 12", ""),
+    ("a8", "A8", "Clean Earth synergies", "=0", f"={I('CE_Syn')}*{I('CE_SynPh27')}/{I('USD_EUR')}", None, EUR, "Run-rate synergies x share achieved in 2027 / USD per EUR", "Inputs: CE_Syn, CE_SynPh27"),
+    ("a9", "A9", "EBITDA lost through asset sales", "=0", f"=-(C{{b8}}+0.5*D{{b8}})/{I('DispMult')}", None, EUR, "-(H2-26 sales + half of 2027 sales) / multiple of assets sold", "Inputs: DispMult"),
+    ("a10", "A10", "GROUP EBITDA", "=C{a4}+C{a7}+C{a8}+C{a9}", "=D{a4}+D{a7}+D{a8}+D{a9}", None, EUR, "A4 + A7 + A8 + A9", ""),
+    ("h", "B. Net debt roll-forward - the numerator of the leverage test"),
+    ("b1", "B1", "Net debt, opening", f"={I('NFD_J26')}", "=C{b11}", None, EUR, "2026: actual at 30 June. 2027: closing 2026 from B11.", "Inputs: NFD_J26 (H1-26 report p.26)"),
+    ("b2", "B2", "Net free cash flow, full year", f"={I('FCF25')}*(1+{I('FCF_g')})", f"=C{{b2}}*(1+{I('FCF_g')})+{I('CE_FCF27')}", None, EUR, "Prior year x (1 + growth). Net FCF is after capex, interest and tax, before dividends.", "Inputs: FCF25, FCF_g, CE_FCF27"),
+    ("b3", "B3", "Less: net FCF already in the June debt (H1 2026)", f"=-{I('FCF_H126')}", "=0", None, EUR, "H1 2026 net FCF was negative (-288), so H2 is the full year plus 288.", "Inputs: FCF_H126 (H1-26 report p.26)"),
+    ("b4", "B4", "Net free cash flow in the period", "=C{b2}+C{b3}", "=D{b2}+D{b3}", "=C{b4}+D{b4}", EUR, "B2 + B3", ""),
+    ("b5", "B5", "Parent dividend", "=0", f"={I('DivPar26')}*(1+{I('DivGrowth')})", "=C{b5}+D{b5}", EUR, "Paid in May. 2027 = 2026 dividend x (1 + growth).", "Inputs: DivPar26, DivGrowth"),
+    ("b6", "B6", "Minority dividends and hybrid coupons", f"={I('DivCF25')}+{I('Coup25')}-{I('DivBridgeH125')}", f"={I('DivMin')}+{I('Coup25')}*({I('Hyb25')}-{I('HybRed')})/{I('Hyb25')}", "=C{b6}+D{b6}", EUR, "H2-26: what FY2025 paid beyond H1-2025. 2027: minorities + coupons scaled to the smaller hybrid stock.", "Inputs: DivCF25, Coup25, DivBridgeH125, DivMin, Hyb25, HybRed"),
+    ("b7", "B7", "Net share buyback", f"={I('Buyback')}", f"={I('Buyback')}", "=C{b7}+D{b7}", EUR, "Capital reduction less employee share issue (FY2025 pattern).", "Inputs: Buyback"),
+    ("b8", "B8", "Asset sale proceeds", f"={I('DispTotal')}*{I('DispShare')}*{I('DispShareH2')}", f"={I('DispTotal')}*{I('DispShare')}*(1-{I('DispShareH2')})", "=C{b8}+D{b8}", EUR, "Programme x share cashed by end-2027, split H2-26 / 2027.", "Inputs: DispTotal, DispShare, DispShareH2"),
+    ("b9", "B9", "Currency and other effects on debt", f"={I('FX_H2')}", f"={I('FX_27')}", "=C{b9}+D{b9}", EUR, "Positive = debt goes up.", "Inputs: FX_H2, FX_27"),
+    ("b10", "B10", "Change in net debt", "=-C{b4}+C{b5}+C{b6}+C{b7}-C{b8}+C{b9}", "=-D{b4}+D{b5}+D{b6}+D{b7}-D{b8}+D{b9}", "=C{b10}+D{b10}", EUR, "- B4 + B5 + B6 + B7 - B8 + B9", ""),
+    ("b11", "B11", "NET DEBT, CLOSING (before any new acquisition)", "=C{b1}+C{b10}", "=D{b1}+D{b10}", None, EUR, "B1 + B10", ""),
+    ("h", "C. Leverage test and acquisition capacity"),
+    ("c1", "C1", "Leverage = net debt / EBITDA", "=C{b11}/C{a10}", "=D{b11}/D{a10}", None, X, "B11 / A10", ""),
+    ("c2", "C2", "Leverage limit", f"={I('Lguid26')}", f"={I('Lmax')}", None, X, "2026: guidance '3x or slightly above'. 2027: the <=3x commitment.", "Inputs: Lguid26, Lmax"),
+    ("c3", "C3", "Maximum net debt allowed", "=C{c2}*C{a10}", "=D{c2}*D{a10}", None, EUR, "C2 x A10", ""),
+    ("c4", "C4", "Debt headroom", "=C{c3}-C{b11}", "=D{c3}-D{b11}", None, EUR, "C3 - B11. Negative in 2026 = slightly above 3x, as guided.", ""),
+    ("c5", "C5", "Share of acquired EBITDA counted in the ratio", None, f"={I('ProForma')}", None, PCT, "0 = conservative; 100% if the ratio is pro forma.", "Inputs: ProForma"),
+    ("c6", "C6", "EV/EBITDA paid on acquisitions", None, f"={I('DealMult')}", None, X, "", "Inputs: DealMult"),
+    ("c7", "C7", "ACQUISITION CAPACITY, Jul-26 to Dec-27 (enterprise value)", None, "=D{c4}/(1-D{c2}*D{c5}/D{c6})", None, EUR, "C4 / (1 - C2 x C5 / C6): every EUR of deal adds debt, and C5/C6 of it in EBITDA.", ""),
+    ("h", "D. Checks"),
+    ("d1", "D1", "Check: equals Engine base case (should be 0)", None, "=ROUND(D{c7}-" + ecell("Cap", 0) + ",6)", None, EUR, "Two independent layouts of the same calculation.", ""),
+    ("d2", "D2", "Check: 2026 leverage vs guidance", None, '=IF(ABS(C{c1}-C{c2})<=0.15,"consistent with guidance","REVIEW")', None, None, "Guidance: '3x or slightly above, Clean Earth included' (H1-26 p.29).", ""),
+]
+r = 5; SBR = {}
+for row in SROWS:
+    if row[0] == "h":
+        r += 1 if r > 5 else 0
+        SBR.setdefault("_h", []).append(r); r += 1; continue
+    SBR[row[0]] = r; r += 1
+r = 5; hi = 0
+for row in SROWS:
+    if row[0] == "h":
+        r = SBR["_h"][hi]; hi += 1
+        c = sb.cell(row=r, column=1, value=row[1]); font(c, bold=True)
+        for col in range(1, 8):
+            sb.cell(row=r, column=col).fill = SUB
+        continue
+    k, step, lab, fc, fd, fe, fmt, how, src = row
+    rr = SBR[k]
+    big = lab.isupper() or lab.startswith(("GROUP", "NET DEBT", "ACQUISITION"))
+    font(sb.cell(row=rr, column=1, value=step)); font(sb.cell(row=rr, column=2, value=lab), bold=big)
+    for col, f in ((3, fc), (4, fd), (5, fe)):
+        if f is None:
+            continue
+        c = sb.cell(row=rr, column=col, value=f.format(**SBR))
+        font(c, color=GREEN if "Inputs!" in f and not any(o in f.replace("Inputs!", "") for o in "+-*/(") else BLACK, bold=big)
+        if fmt:
+            c.number_format = fmt
+        if k == "c7" and col == 4:
+            c.fill = YELLOW
+    font(sb.cell(row=rr, column=6, value=how), italic=True)
+    font(sb.cell(row=rr, column=7, value=src), size=9)
+    for col in (6, 7):
+        sb.cell(row=rr, column=col).alignment = Alignment(wrap_text=True, vertical="top")
+sb.freeze_panes = "C5"
+
 # ---------------------------------------------------------------- FORMULAS (the four standard formulas, applied)
-fm = wb.create_sheet("Formulas", 2)
+fm = wb.create_sheet("Formulas", 3)
 fm.column_dimensions["A"].width = 64; fm.column_dimensions["B"].width = 14; fm.column_dimensions["C"].width = 90
 fm["A1"] = "Capacity with the four standard formulas (base case, EUR m)"; font(fm["A1"], bold=True, size=12)
 def E0(k):
